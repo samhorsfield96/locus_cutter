@@ -34,149 +34,104 @@ def get_options():
                     help='Output prefix ')
     return parser.parse_args()
 
-def get_best_map(index, fasta, cutoff):
+def get_best_map(index, pair_id, seq_index, sequence, cutoff):
     a = mp.Aligner(index, preset="asm10")
 
-    best_hit = (None, None, 0, 0, 0)
+    best_map = (None, None, None, 0, 0, 0)
 
-    fasta_sequences = SeqIO.parse(open(fasta), 'fasta')
-    for fasta in fasta_sequences:
-        id, sequence = fasta.id, str(fasta.seq)
+    for hit in a.map(sequence):
+        if not hit.is_primary:
+            continue
+        query_hit = hit.blen
 
-        for hit in a.map(sequence):
-            if not hit.is_primary:
-                continue
-            query_hit = hit.blen
+        # set cutoff for minimum alignment length
+        if query_hit < cutoff * len(sequence):
+            continue
 
-            # set cutoff for minimum alignment length
-            if query_hit < cutoff * len(sequence):
-                continue
+        if query_hit > best_map[-1]:
+            best_map = (pair_id, seq_index, hit.ctg, hit.r_st, hit.r_en, query_hit)
 
-            if query_hit > best_hit[-1]:
-                best_hit = (id, hit.ctg, hit.r_st, hit.r_en, query_hit)
+    return best_map
 
-    return best_hit
-
-def cut_loci(infiles, in_fasta, separate, cutonly, cutoff, outpref):
+def cut_loci(infiles, seq_pair_dict, cutoff):
     file_list = []
 
-    count_dict = {}
+    cut_records = []
 
     with open(infiles, "r") as f:
         for line in f:
             file_list.append(line.strip())
 
     for file in file_list:
-        best_map = get_best_map(file, in_fasta, cutoff)
+        for pair_id, seq_pair in seq_pair_dict.items():
+        
+            best_map_pair = [None, None]
+            # find best match for each sequence
+            for seq_index, seq in enumerate(seq_pair):
+                best_map_pair[seq_index] = get_best_map(file, pair_id, seq_index, seq, cutoff)
 
-        if best_map[0] not in count_dict:
-            count_dict[best_map[0]] = []
-        count_dict[best_map[0]].append(best_map[0])
+            seq1_valid = best_map_pair[0][0] != None
+            seq2_valid = best_map_pair[1][0] != None
 
-        if best_map[0] != None:
-            out_pref = os.path.splitext(file)[0]
-
-            rem_records = []
-            cut_records = []
-
-            fasta_sequences = SeqIO.parse(open(file), 'fasta')
-            for fasta in fasta_sequences:
-                id, sequence = fasta.id, str(fasta.seq)
-
-                # if match to contig, cut out loci
-                if id == best_map[1]:
-                    cut = sequence[best_map[2]:best_map[3]]
-                    pre_remainder = sequence[:best_map[2]]
-                    post_remainder = sequence[best_map[3]:]
-
-                    if not cutonly:
-                        rem_records.append(SeqRecord(Seq(pre_remainder), id=id + "_precut_" + best_map[0],
-                                                 description=fasta.description))
-
-                    # print to separate files
-                    if separate or cutonly:
-                        cut_records.append(SeqRecord(Seq(cut), id=id + "_" + best_map[0],
-                                                 description=fasta.description))
-                    else:
-                        rem_records.append(SeqRecord(Seq(cut), id=id + "_cut_" + best_map[0],
-                                                 description=fasta.description))
-
-                    if not cutonly:
-                        rem_records.append(SeqRecord(Seq(post_remainder), id=id + "_postcut_" + best_map[0],
-                                                 description=fasta.description))
-                else:
-                    if not cutonly:
-                        rem_records.append(SeqRecord(fasta.seq, id=fasta.id,
-                                                 description=fasta.description))
-
-            if not cutonly:
-                SeqIO.write(rem_records, out_pref + "_rem.fa", "fasta")
-            if separate or cutonly:
-                SeqIO.write(cut_records, out_pref + "_cut.fa", "fasta")
-        # if no match, copy and save as rem
-        else:
-            if not cutonly:
-                rem_records = []
-
+            # make sure at least one sequences found a hit
+            if seq1_valid or seq2_valid:
                 fasta_sequences = SeqIO.parse(open(file), 'fasta')
                 for fasta in fasta_sequences:
-                    rem_records.append(SeqRecord(fasta.seq, id=fasta.id,
-                                                 description=fasta.description))
-                SeqIO.write(rem_records, out_pref + "_nocut.fa", "fasta")
+                    contig_id, sequence = fasta.id, str(fasta.seq)
+                    seq1_match = contig_id == best_map_pair[0][2]
+                    seq2_match = contig_id == best_map_pair[1][2]
+                    locus_1 = None
+                    locus_2 = None
+                    detail = ""
 
+                    # both sequences match contig
+                    if seq1_match and seq2_match:
+                        # work out which way round to cut
+                        locus_1 = min(best_map_pair[0][3], best_map_pair[1][3])
+                        locus_2 = max(best_map_pair[0][4], best_map_pair[1][4])
+                        detail = "complete"
+                    # first sequence matches
+                    elif seq1_match and not seq2_match:
+                        locus_1 = best_map_pair[0][3]
+                        locus_2 = best_map_pair[0][4]
+                        detail = "1_only"
+                    # second sequence matches
+                    elif not seq1_match and seq2_match:
+                        locus_1 = best_map_pair[1][3]
+                        locus_2 = best_map_pair[1][4]
+                        detail = "2_only"
+                    
+                    # ensure match found
+                    if locus_1 != None and locus_2 != None
+                        cut = sequence[locus_1:locus_2]
 
-    # print output files
-    with open(outpref + "_summary.txt", "w") as o1, open(outpref + ".tsv", "w") as o2:
-        o1.write("Assignment\tCount\n")
-        o2.write("File\tAssignment\n")
-        for assignment, file_list in count_dict.items():
-            o1.write(str(assignment) + "\t" + str(len(file_list)) + "\n")
-            for file in file_list:
-                o2.write(str(file) + "\t" + str(assignment) + "\n")
-
-def count_loci(infiles, outpref):
-    file_list = []
-    count_dict = {}
-
-    with open(infiles, "r") as f:
-        for line in f:
-            # ensure only cut files are analysed
-            if "_cut" in line:
-                file_list.append(line.strip())
-
-    for file in file_list:
-        base = os.path.splitext(os.path.basename(file))[0].split("_cut")[0]
-        fasta_sequences = SeqIO.parse(open(file), 'fasta')
-        for fasta in fasta_sequences:
-            id = fasta.id
-            assignment = id.split("_")[-1]
-            if assignment not in count_dict:
-                count_dict[assignment] = []
-            count_dict[assignment].append(base)
-
-    # print output files
-    with open(outpref + "_summary.txt", "w") as o1, open(outpref + ".tsv", "w") as o2:
-        o1.write("Assignment\tCount\n")
-        o2.write("File\tAssignment\n")
-        for assignment, file_list in count_dict.items():
-            o1.write(str(assignment) + "\t" + str(len(file_list)) + "\n")
-            for file in file_list:
-                o2.write(str(file) + "\t" + str(assignment) + "\n")
+                        cut_records.append(SeqRecord(Seq(cut), id=contig_id + "_" + pair_id + "_" + detail,
+                                                    description=fasta.description))                        
+    return cut_records
 
 def main():
     options = get_options()
     infiles = options.infiles
     query = options.query
-    separate = options.separate
-    cutonly = options.cutonly
     cutoff = options.cutoff
-    count = options.count
     outpref = options.outpref
+    
+    # get pairs of query sequences
+    seq_pair_dict = defaultdict(list)
+    fasta_sequences = SeqIO.parse(open(query), 'fasta')
+    for fasta in fasta_sequences:
+        id, sequence = fasta.id, str(fasta.seq)
+        seq_pair_dict[id].append(sequence)
+    
+    # check that each sequence pair only has two sequences
+    for pair_id, seq_pair in seq_pair_dict.items():
+        assert len(seq_pair) == 2
+    
+    # generate list of cut loci
+    cut_records = cut_loci(infiles, seq_pair_dict, cutoff)
 
-    if not count:
-        cut_loci(infiles, query, separate, cutonly, cutoff, outpref)
-    else:
-        count_loci(infiles, outpref)
+    # write cut loci
+    SeqIO.write(cut_records, out_pref + "_cut.fa", "fasta")
 
     return 0
 
