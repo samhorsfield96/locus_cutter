@@ -104,7 +104,7 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                             detail = "2_only"
                         
                         # ensure match found
-                        if locus_1 != None and locus_2 != None
+                        if locus_1 != None and locus_2 != None:
                             cut = sequence[locus_1:locus_2]
 
                             cut_records.append(SeqRecord(Seq(cut), id=contig_id + "_" + pair_id + "_" + detail,
@@ -142,7 +142,7 @@ def main():
     cut_records = cut_loci(infiles, seq_pair_dict, cutoff)
 
     # write cut loci
-    SeqIO.write(cut_records, out_pref + "_cut.fa", "fasta")
+    SeqIO.write(cut_records, outpref + "_cut.fa", "fasta")
 
     return 0
 
