@@ -1,0 +1,8 @@
+name: locus_cutter
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python>=3.9
+  - biopython
+  - mappy
