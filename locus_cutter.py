@@ -109,11 +109,13 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                         elif seq1_match and not seq2_match:
                             # add partial match
                             partial_found.add(file)
+
+                            # get strand
+                            strand = best_map_pair[0][-1]
+                            strand_str = "_for" if strand == 1 else "_rev"
                             
                             # if seq2_valid, means likely contig break
                             if seq2_valid:
-                                strand = best_map_pair[0][-1]
-                                strand_str = "_for" if strand == 1 else "_rev"
                                 # positive strand, set locus_2 as end of contig
                                 if strand == 1:
                                     locus_1 = best_map_pair[0][3]
@@ -132,10 +134,12 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                             # add partial match
                             partial_found.add(file)
 
+                            # get strand
+                            strand = best_map_pair[1][-1]
+                            strand_str = "_for" if strand == 1 else "_rev"
+
                             # if seq1_valid, means likely contig break
                             if seq1_valid:
-                                strand = best_map_pair[1][-1]
-                                strand_str = "_for" if strand == 1 else "_rev"
                                 # positive strand, set locus_1 as start of contig
                                 if strand == 1:
                                     locus_1 = 0
