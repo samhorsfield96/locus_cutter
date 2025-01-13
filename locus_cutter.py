@@ -26,7 +26,7 @@ def get_options():
                     default=0.7,
                     help='Cutoff of alignment length to confirm match. '
                          'Default = 0.7')
-    IO.add_argument('--outfile',
+    IO.add_argument('--outpref',
                     default="result_cut.fasta",
                     help='Output filename. Default = "result_cut.fasta"')
     return parser.parse_args()
@@ -54,6 +54,8 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
     file_list = []
 
     cut_records = []
+    not_found = set()
+    partial_found = set()
 
     with open(infiles, "r") as f:
         for line in f:
@@ -105,6 +107,9 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                         
                         # first sequence matches
                         elif seq1_match and not seq2_match:
+                            # add partial match
+                            partial_found.add(file)
+                            
                             # if seq2_valid, means likely contig break
                             if seq2_valid:
                                 strand = best_map_pair[0][-1]
@@ -124,6 +129,9 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                                 detail = "1_only"
                         # second sequence matches
                         elif not seq1_match and seq2_match:
+                            # add partial match
+                            partial_found.add(file)
+
                             # if seq1_valid, means likely contig break
                             if seq1_valid:
                                 strand = best_map_pair[1][-1]
@@ -154,15 +162,19 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                             detail += strand_str
 
                             cut_records.append(SeqRecord(Seq(cut), id=contig_id + "_" + pair_id + "_" + detail,
-                                                        description=fasta.description))                        
-    return cut_records
+                                                        description=fasta.description))
+            else:
+                # add to list of genomes not found
+                not_found.add(file)
+    
+    return cut_records, partial_found, not_found
 
 def main():
     options = get_options()
     infiles = options.infiles
     query = options.query
     cutoff = options.cutoff
-    outfile = options.outfile
+    outpref = options.outpref
     
     # check if FASTA is gzipped
     gzipped = False
@@ -185,10 +197,19 @@ def main():
         assert len(seq_pair) == 2
     
     # generate list of cut loci
-    cut_records = cut_loci(infiles, seq_pair_dict, cutoff)
+    cut_records, partial_found, not_found = cut_loci(infiles, seq_pair_dict, cutoff)
 
     # write cut loci
-    SeqIO.write(cut_records, outfile, "fasta")
+    SeqIO.write(cut_records, outpref + ".fasta", "fasta")
+
+    # write partial_found and not found
+    with open(outpref + "_partial.txt", "w") as o:
+        for entry in partial_found:
+            o.write(entry + "\n")
+    
+    with open(outpref + "_absent.txt", "w") as o:
+        for entry in not_found:
+            o.write(entry + "\n")
 
     return 0
 
