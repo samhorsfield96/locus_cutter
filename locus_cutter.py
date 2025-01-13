@@ -7,6 +7,7 @@ import argparse
 from collections import defaultdict
 import gzip
 from functools import partial
+import tqdm
 
 def get_options():
     description = "Cuts out loci based on alignment of reference sequences"
@@ -25,9 +26,9 @@ def get_options():
                     default=0.7,
                     help='Cutoff of alignment length to confirm match. '
                          'Default = 0.7')
-    IO.add_argument('--outpref',
-                    default="result",
-                    help='Output prefix ')
+    IO.add_argument('--outfile',
+                    default="result_cut.fasta",
+                    help='Output filename. Default = "result_cut.fasta"')
     return parser.parse_args()
 
 def get_best_map(index, pair_id, seq_index, sequence, cutoff):
@@ -58,7 +59,7 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
         for line in f:
             file_list.append(line.strip())
 
-    for file in file_list:
+    for file in tqdm.tqdm(file_list):
         # check if FASTA is gzipped
         gzipped = False
         with open(file, 'rb') as test_f:
@@ -89,6 +90,7 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                         locus_1 = None
                         locus_2 = None
                         detail = ""
+                        strand_str = None
 
                         # both sequences match contig
                         if seq1_match and seq2_match:
@@ -99,7 +101,7 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                             locus_2 = max(best_map_pair[0][4], best_map_pair[1][4])
                             
                             strand_str = "_for" if (strand1 == 1 and strand2 == 1) else "_rev"
-                            detail = "complete" + strand_str
+                            detail = "complete"
                         
                         # first sequence matches
                         elif seq1_match and not seq2_match:
@@ -115,11 +117,11 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                                 else:
                                     locus_1 = 0
                                     locus_2 = best_map_pair[0][4]
-                                detail = "1_extended" + strand_str
+                                detail = "1_extended"
                             else:
                                 locus_1 = best_map_pair[0][3]
                                 locus_2 = best_map_pair[0][4]
-                                detail = "1_only" + strand_str
+                                detail = "1_only"
                         # second sequence matches
                         elif not seq1_match and seq2_match:
                             # if seq1_valid, means likely contig break
@@ -134,15 +136,22 @@ def cut_loci(infiles, seq_pair_dict, cutoff):
                                 else:
                                     locus_1 = best_map_pair[1][3]
                                     locus_2 = len(sequence) + 1
-                                detail = "2_extended" + strand_str
+                                detail = "2_extended"
                             else:
                                 locus_1 = best_map_pair[1][3]
                                 locus_2 = best_map_pair[1][4]
-                                detail = "2_only" + strand_str
+                                detail = "2_only"
                         
                         # ensure match found
-                        if locus_1 != None and locus_2 != None:
+                        if locus_1 != None and locus_2 != None:                            
                             cut = sequence[locus_1:locus_2]
+
+                            # get sequence onto correct strand
+                            if strand_str == "_rev":
+                                cut = str(Seq(cut).reverse_complement())
+                                strand_str = "_for"
+                            
+                            detail += strand_str
 
                             cut_records.append(SeqRecord(Seq(cut), id=contig_id + "_" + pair_id + "_" + detail,
                                                         description=fasta.description))                        
@@ -153,13 +162,7 @@ def main():
     infiles = options.infiles
     query = options.query
     cutoff = options.cutoff
-    outpref = options.outpref
-    # order = options.order
-
-    # if order != None:
-    #     assert order == "1,2" or order == "2,1"
-    #     order = order.split(",")
-    #     order = (order[0], order[1])
+    outfile = options.outfile
     
     # check if FASTA is gzipped
     gzipped = False
@@ -185,7 +188,7 @@ def main():
     cut_records = cut_loci(infiles, seq_pair_dict, cutoff)
 
     # write cut loci
-    SeqIO.write(cut_records, outpref + "_cut.fa", "fasta")
+    SeqIO.write(cut_records, outfile, "fasta")
 
     return 0
 
